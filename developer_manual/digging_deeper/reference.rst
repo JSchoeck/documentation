@@ -302,16 +302,147 @@ the Smart Picker.
 Use the Smart Picker in clients
 -------------------------------
 
-############## TODO
+Clients can implement partial support of the Smart Picker.
 
-Client can implement partial support of the smart picker.
-As the custom picker components are web components, clients might not want or be able to render them.
+There are 2 types of Smart Picker providers:
 
-List the smart picker providers
+* The ones with a custom picker component
+* The ones that support one or multiple unified search providers
+
+As the custom picker components are web components, clients might not be able (or want) to render them.
+So we are mostly interested in the second type here: the ones using unified search providers.
+
+In Nextcloud's web UI, those providers are rendered with a
+`generic search Vue component <https://github.com/nextcloud/nextcloud-vue/blob/master/src/components/NcRichText/NcReferencePicker/NcSearch.vue>`_
+which shows a search input, lists the search result in a dropdown menu and directly submits the URL of the selected result.
+The search is done by directly querying the Unified Search OCS API. This is described later.
+
+Get the provider list
+~~~~~~~~~~~~~~~~~~~~~
+
+The list of Smart Picker providers can be obtained via an OCS endpoint.
+Each provider object contains the list of supported unified search providers.
+
+Here is the server endpoint to list the smart picker providers:
+
+.. code-block:: bash
+
+    curl -u USER:PASSWD -H "Accept: application/json" -H "ocs-apirequest: true" \
+        "https://my.nextcloud.org/ocs/v2.php/references/providers"
+
+and an example response:
+
+.. code-block:: json
+
+    {
+      "ocs": {
+    	"meta": {
+    	  "status": "ok",
+    	  "statuscode": 200,
+    	  "message": "OK"
+    	},
+    	"data": [
+    	  {
+    	    "id": "github-issue-pr",
+    	    "title": "GitHub issues, pull requests and comments",
+    	    "icon_url": "https://my.nextcloud.org/apps/integration_github/img/app-dark.svg",
+    	    "order": 10,
+    	    "search_providers_ids": [
+    	      "github-search-issues",
+    	      "github-search-repos"
+    	    ]
+    	  },
+    	  {
+    	    "id": "openstreetmap-point",
+    	    "title": "Map location (by OpenStreetMap)",
+    	    "icon_url": "https://my.nextcloud.org/apps/integration_openstreetmap/img/app-dark.svg",
+    	    "order": 10,
+    	    "search_providers_ids": [
+    	      "openstreetmap-search-location"
+    	    ]
+    	  },
+    	  {
+    	    "id": "files",
+    	    "title": "Files",
+    	    "icon_url": "https://my.nextcloud.org/apps/files/img/folder.svg",
+    	    "order": 0
+    	  }
+    	]
+      }
+    }
+
+In this example, the "files" Smart Picker provider does not support any unified search provider
+but the "github-issue-pr" one supports 2 of them and the "openstreetmap-point" support one.
 
 Use the unified search API
+~~~~~~~~~~~~~~~~~~~~~~~~~~
+
+Here is how to search using the Unified Search OCS API:
+
+.. code-block:: bash
+
+    curl -u USER:PASSWD -H "Accept: application/json" -H "ocs-apirequest: true" \
+        "https://my.nextcloud.org/ocs/v2.php/search/providers/PROVIDER_ID/search?term=QUERY&limit=LIMIT"
+
+    # with a cursor (paginated search)
+    curl -u USER:PASSWD -H "Accept: application/json" -H "ocs-apirequest: true" \
+        "https://my.nextcloud.org/ocs/v2.php/search/providers/PROVIDER_ID/search?term=QUERY&limit=LIMIT&cursor=CURSOR"
+
+Example response:
+
+.. code-block:: json
+
+    {
+      "ocs": {
+        "meta": {
+          "status": "ok",
+          "statuscode": 200,
+          "message": "OK"
+        },
+        "data": {
+          "name": "GitHub issues and pull requests",
+          "isPaginated": true,
+          "entries": [
+            {
+              "thumbnailUrl": "https://my.nextcloud.org/apps/integration_github/avatar/Daily-DAYO",
+              "title": " [bug] Change Trim bugs",
+              "subline": "⑁ DAYO_Android#409",
+              "resourceUrl": "https://github.com/Daily-DAYO/DAYO_Android/pull/409",
+              "icon": "",
+              "rounded": true,
+              "attributes": []
+            },
+            {
+              "thumbnailUrl": "https://my.nextcloud.org/apps/integration_github/avatar/walinejs",
+              "title": " [Bug]:  || [Bug]:",
+              "subline": "⦿ waline#2014",
+              "resourceUrl": "https://github.com/walinejs/waline/issues/2014",
+              "icon": "",
+              "rounded": true,
+              "attributes": []
+            }
+          ],
+          "cursor": 2
+        }
+      }
+    }
+
+The interesting attribute in search result entries is the ``resourceUrl`` one.
 
 Update a provider last usage date
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+
+In Nextcloud's web UI, the order in which the providers are listed to the users depends on the last
+date they were used. The most recently used providers are displayed first.
+
+In a client, once a provider has been used, a request to this endpoint should be done:
+
+.. code-block:: bash
+
+    curl -u USER:PASSWD -H "Accept: application/json" -H "ocs-apirequest: true" -X PUT \
+        "https://my.nextcloud.org/ocs/v2.php/search/provider/PROVIDER_ID"
+
+A ``timestamp`` optional request parameter can be passed. The last usage date will be set to "now" by default.
 
 Register a reference provider
 -----------------------------
@@ -553,7 +684,7 @@ Set the rich object's ``vcs_issue`` attribute to an object which contains those 
 * ``created_at``: The creation timestamp
 * ``author``: The user ID or name of the issue creator
 
-Example implementation: `GitHub integration <https://github.com/nextcloud/integration_github/blob/e6792ea0aadef4f5b8faaaaa163a0cf473d86157/lib/Reference/GithubIssuePrReferenceProvider.php#L135>`_
+Example implementation: `GitHub integration issue link preview <https://github.com/nextcloud/integration_github/blob/e6792ea0aadef4f5b8faaaaa163a0cf473d86157/lib/Reference/GithubIssuePrReferenceProvider.php#L135>`_
 
 Version control pull request
 ^^^^^^^^^^^^^^^^^^^^^^^^^^^^
@@ -563,7 +694,7 @@ Set the rich object's ``vcs_pull_request`` attribute to an object which contains
 * ``merged``: Is it merged? (boolean)
 * ``draft``: Is it a draft? (boolean)
 
-Example implementation: `GitHub integration <https://github.com/nextcloud/integration_github/blob/e6792ea0aadef4f5b8faaaaa163a0cf473d86157/lib/Reference/GithubIssuePrReferenceProvider.php#L162>`_
+Example implementation: `GitHub integration pull request link preview <https://github.com/nextcloud/integration_github/blob/e6792ea0aadef4f5b8faaaaa163a0cf473d86157/lib/Reference/GithubIssuePrReferenceProvider.php#L162>`_
 
 Version control issue or pull request comment
 ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
